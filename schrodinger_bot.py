@@ -1,63 +1,60 @@
 import discord
 from discord.ext import commands
 import yt_dlp as ytdl
-import asyncio
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Configuration de yt-dlp
 ytdl_opts = {
     'format': 'bestaudio/best',
-    'quiet': False,  # Affiche des logs détaillés
+    'quiet': True,
+    'no_warnings': True,
+    'extract_flat': True,
+    'socket_timeout': 120,
     'retries': 10,
-    'fragment_retries': 10,
-    'socket_timeout': 10,
-    'noprogress': True,
     'nocheckcertificate': True,
+    'ignoreerrors': True,
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'opus',
+    }],
 }
-# Options pour FFmpeg
+
 ffmpeg_opts = {
-    'options': '-vn',  # Nous ne voulons pas de vidéo, seulement de l'audio
+    'options': '-vn'  # Simplified options
 }
 
-# Fonction pour joindre le canal vocal
-async def join_voice_channel(ctx):
-    channel = ctx.author.voice.channel
-    voice = await channel.connect()
-    return voice
-
-# Fonction pour jouer la musique
 async def play_music(ctx, url):
-    print(f"Attempting to play music from URL: {url}")  # Log pour vérifier l'URL
-    voice = await join_voice_channel(ctx)
+    if not ctx.author.voice:
+        await ctx.send("Vous devez être dans un canal vocal!")
+        return
+        
+    voice = ctx.voice_client or await ctx.author.voice.channel.connect()
     
-    # Télécharger l'audio depuis YouTube avec yt-dlp
-    with ytdl.YoutubeDL(ytdl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        url2 = info['formats'][0]['url']  # URL du flux audio
+    try:
+        with ytdl.YoutubeDL(ytdl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            audio_url = info.get('url') or info['formats'][0]['url']
+            source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_opts)
+            voice.play(source)
+            await ctx.send(f"Lecture de: {info.get('title', 'musique')}")
+    except Exception as e:
+        await ctx.send(f"Erreur: {str(e)}")
 
-        # Lire le flux audio dans le canal vocal
-        voice.play(discord.FFmpegPCMAudio(url2, **ffmpeg_opts))
-    
-    await ctx.send(f"Lecture de la musique: {url}")
-
-# Commande pour jouer la musique
 @bot.command()
 async def play(ctx, url: str):
-    """Commande pour jouer de la musique depuis un lien YouTube."""
     await play_music(ctx, url)
 
-# Commande pour quitter le canal vocal
 @bot.command()
 async def leave(ctx):
-    """Commande pour faire quitter le bot du canal vocal."""
     if ctx.voice_client:
         await ctx.voice_client.disconnect()
-        await ctx.send("Je quitte le canal vocal.")
-    else:
-        await ctx.send("Je ne suis pas dans un canal vocal.")
+        await ctx.send("Canal vocal quitté.")
+
+@bot.event
+async def on_ready():
+    print(f'Bot connecté en tant que {bot.user}')
 
 # Lancer le bot
 bot.run('Your Token ???')
